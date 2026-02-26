@@ -448,7 +448,7 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
         # Define progress callback
         def update_progress(stage_name, percent):
             status_text.markdown(f"**{stage_name}**")
-            progress_bar.progress(percent)
+            progress_bar.progress(min(percent, 100))
 
         try:
             # Call pipeline with progress callback
@@ -461,86 +461,18 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
                 progress_callback=update_progress
             )
 
+            # Fallback: if all abstractive models produced empty output
+            if not results.get('best_summary'):
+                results['best_summary'] = results.get('extractive_text', 'No summary could be generated.')
+                results['best_model'] = 'extractive_fallback'
+
+            # Store results in session_state so they persist across reruns
+            st.session_state['results'] = results
+            st.session_state['result_language'] = language_code
+
             # Clear progress
             status_text.empty()
             progress_bar.empty()
-
-            # ---- Results UI ----
-            st.success("✅ Summarization Complete!")
-
-            res_tab_final, res_tab_stages, res_tab_metrics = st.tabs(["⭐ Final Summary", "🔄 Pipeline Stages", "📊 Meta-Selection Metrics"])
-
-            with res_tab_final:
-                st.markdown(f"""
-                <div class="result-card">
-                    <p style="margin-bottom: 0.5rem; color: #6c757d;">Selected Model Phase</p>
-                    <span class="model-badge">{results['best_model']}</span>
-                    <hr style="margin: 1rem 0;">
-                    <p style="font-size: 1.1rem; line-height: 1.8;">{results['best_summary']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                st.markdown("### 📥 Export")
-                create_download_buttons(results['best_summary'], language=language_code)
-
-            with res_tab_stages:
-                # Stage 1
-                st.markdown("""
-                <div class="stage-indicator">
-                    <h4 style="margin: 0; color: #667eea;">📖 Stage 1: Extractive Selection (TextRank)</h4>
-                    <p style="margin: 0.5rem 0 0 0; color: #6c757d;">Identified Key Sentences:</p>
-                </div>
-                """, unsafe_allow_html=True)
-                for idx, s in enumerate(results['extractive_list']):
-                    st.markdown(f"**{idx+1}.** {s}")
-
-                st.markdown("---")
-
-                # Stage 2
-                st.markdown("""
-                <div class="stage-indicator">
-                    <h4 style="margin: 0; color: #667eea;">🔍 Stage 2: Semantic Clustering</h4>
-                    <p style="margin: 0.5rem 0 0 0; color: #6c757d;">Clustered Core Ideas:</p>
-                </div>
-                """, unsafe_allow_html=True)
-                for idx, s in enumerate(results['clustered_list']):
-                    st.markdown(f"**{idx+1}.** {s}")
-
-                st.markdown("---")
-
-                # Stage 3
-                st.markdown("""
-                <div class="stage-indicator">
-                    <h4 style="margin: 0; color: #667eea;">✍️ Stage 3: Abstractive Ensemble Candidates</h4>
-                </div>
-                """, unsafe_allow_html=True)
-                for model, candidate in results['candidates'].items():
-                    with st.expander(f"Candidate: {model}"):
-                        st.write(candidate)
-
-            with res_tab_metrics:
-                st.markdown("""
-                <div class="info-box">
-                    <strong>Why was this summary chosen?</strong><br>
-                    The system automatically scored all candidates against the Semantic Clustering reference using multiple quality metrics.
-                </div>
-                """, unsafe_allow_html=True)
-
-                for model, scores in results['scores'].items():
-                    st.markdown(f"**Model:** `{model}`")
-
-                    # Score breakdown
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Final Score", f"{scores['final_score']:.4f}")
-                    with col2:
-                        st.metric("ROUGE", f"{scores['raw_metrics'].get('rouge', 0):.4f}")
-                    with col3:
-                        st.metric("BERTScore", f"{scores['raw_metrics'].get('bertscore', 0):.4f}")
-                    with col4:
-                        st.metric("Coherence", f"{scores['raw_metrics'].get('coherence', 0):.4f}")
-
-                    st.divider()
 
         except ValueError as e:
             progress_bar.empty()
@@ -580,13 +512,9 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
             status_text.empty()
             error_msg = str(e)
 
-            # Provide specific guidance based on error content
             if "device" in error_msg.lower() and "cuda" in error_msg.lower():
                 st.error("🖥️ **GPU/CPU Device Mismatch:** A model component is on the wrong device.")
                 st.info("💡 **Suggestion:** Restart the Streamlit server and try again.")
-            elif "token" in error_msg.lower() or "tokenizer" in error_msg.lower():
-                st.error("🔤 **Tokenization Error:** The text could not be processed by the language model.")
-                st.info("💡 **Suggestion:** Ensure the correct **Language** is selected in the sidebar for your input text.")
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                 st.error("🌐 **Network Error:** Could not connect to HuggingFace to download a model.")
                 st.info("💡 **Suggestion:** Run `python download_models.py` once to pre-cache all models locally.")
@@ -595,3 +523,94 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
 
             with st.expander("🔍 Technical details — click to report this bug"):
                 st.exception(e)
+
+# ---- Display Results from Session State (persists across reruns) ----
+if 'results' in st.session_state:
+    results = st.session_state['results']
+    result_language = st.session_state.get('result_language', 'en')
+
+    st.success("✅ Summarization Complete!")
+
+    res_tab_final, res_tab_stages, res_tab_metrics = st.tabs(["⭐ Final Summary", "🔄 Pipeline Stages", "📊 Meta-Selection Metrics"])
+
+    with res_tab_final:
+        st.markdown(f"""
+        <div class="result-card">
+            <p style="margin-bottom: 0.5rem; color: #6c757d;">Selected Model Phase</p>
+            <span class="model-badge">{results['best_model']}</span>
+            <hr style="margin: 1rem 0;">
+            <p style="font-size: 1.1rem; line-height: 1.8;">{results['best_summary']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("### 📥 Export")
+        create_download_buttons(results['best_summary'], language=result_language)
+
+    with res_tab_stages:
+        # Stage 1
+        st.markdown("""
+        <div class="stage-indicator">
+            <h4 style="margin: 0; color: #667eea;">📖 Stage 1: Extractive Selection (TextRank)</h4>
+            <p style="margin: 0.5rem 0 0 0; color: #6c757d;">Identified Key Sentences:</p>
+        </div>
+        """, unsafe_allow_html=True)
+        for idx, s in enumerate(results['extractive_list']):
+            st.markdown(f"**{idx+1}.** {s}")
+
+        st.markdown("---")
+
+        # Stage 2
+        st.markdown("""
+        <div class="stage-indicator">
+            <h4 style="margin: 0; color: #667eea;">🔍 Stage 2: Semantic Clustering</h4>
+            <p style="margin: 0.5rem 0 0 0; color: #6c757d;">Clustered Core Ideas:</p>
+        </div>
+        """, unsafe_allow_html=True)
+        for idx, s in enumerate(results['clustered_list']):
+            st.markdown(f"**{idx+1}.** {s}")
+
+        st.markdown("---")
+
+        # Stage 3
+        st.markdown("""
+        <div class="stage-indicator">
+            <h4 style="margin: 0; color: #667eea;">✍️ Stage 3: Abstractive Ensemble Candidates</h4>
+        </div>
+        """, unsafe_allow_html=True)
+        for model, candidate in results['candidates'].items():
+            with st.expander(f"Candidate: {model}"):
+                st.write(candidate if candidate else "_No output generated by this model._")
+
+    with res_tab_metrics:
+        st.markdown("""
+        <div class="info-box">
+            <strong>Why was this summary chosen?</strong><br>
+            The system automatically scored all candidates against the Semantic Clustering reference using multiple quality metrics.
+        </div>
+        """, unsafe_allow_html=True)
+
+        if results.get('scores'):
+            for model, scores in results['scores'].items():
+                st.markdown(f"**Model:** `{model}`")
+
+                # Score breakdown
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Final Score", f"{scores['final_score']:.4f}")
+                with col2:
+                    st.metric("ROUGE", f"{scores['raw_metrics'].get('rouge', scores['raw_metrics'].get('rougeL', 0)):.4f}")
+                with col3:
+                    st.metric("BERTScore", f"{scores['raw_metrics'].get('bertscore', scores['raw_metrics'].get('bert_score', 0)):.4f}")
+                with col4:
+                    st.metric("Coherence", f"{scores['raw_metrics'].get('coherence', 0):.4f}")
+
+                st.divider()
+        else:
+            st.warning("No metrics available. The summary was generated using the extractive fallback.")
+
+    # Button to clear results
+    if st.button("🗑️ Clear Results", use_container_width=True):
+        del st.session_state['results']
+        if 'result_language' in st.session_state:
+            del st.session_state['result_language']
+        st.rerun()

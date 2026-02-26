@@ -22,8 +22,8 @@ class AbstractiveEnsemble:
         self.models = {}
         self.model_names = {
             'bart': 'facebook/mbart-large-50-many-to-many-mmt',
-            # 't5': 'csebuetnlp/mT5_multilingual_XLSum',
-            # 'pegasus': 'google/pegasus-cnn_dailymail'
+            't5': 'csebuetnlp/mT5_multilingual_XLSum',
+            'pegasus': 'google/pegasus-cnn_dailymail'
         }
 
     def load_model(self, model_key):
@@ -71,48 +71,8 @@ class AbstractiveEnsemble:
 
     def generate_single_candidate(self, text, model_key, max_length=150, min_length=30, language='en'):
         """
-        Generates a summary from a single model.
-        """
-        loaded = self.load_model(model_key)
-        if not loaded:
-            return ""
-
-        tokenizer, model = loaded
-        try:
-            # Set mBART source language for correct tokenization
-            mbart_lang = self._get_mbart_lang_code(language)
-            tokenizer.src_lang = mbart_lang
-
-            inputs = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
-            input_ids = inputs.input_ids.to(self.device)
-
-            # Force the decoder to generate in the SAME language as input
-            forced_bos_token_id = tokenizer.lang_code_to_id.get(mbart_lang, tokenizer.lang_code_to_id.get('en_XX'))
-
-            summary_ids = model.generate(
-                input_ids,
-                max_length=max_length,
-                min_length=min_length,
-                num_beams=4,
-                early_stopping=True,
-                forced_bos_token_id=forced_bos_token_id
-            )
-
-            summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-            return summary
-        except Exception as e:
-            print(f"Error generating summary with {model_key}: {e}")
-            return ""
-
-    def get_available_models(self):
-        """
-        Returns a list of available model keys.
-        """
-        return list(self.model_names.keys())
-
-    def generate_single_candidate(self, text, model_key, max_length=150, min_length=30, language='en'):
-        """
         Generates a summary from a specific model.
+        Handles mBART language codes for 'bart', standard generation for others.
         """
         loaded = self.load_model(model_key)
         if not loaded:
@@ -120,23 +80,28 @@ class AbstractiveEnsemble:
 
         tokenizer, model = loaded
         try:
-            mbart_lang = self._get_mbart_lang_code(language)
-            tokenizer.src_lang = mbart_lang
-
             inputs = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
             input_ids = inputs.input_ids.to(self.device)
 
-            forced_bos_token_id = tokenizer.lang_code_to_id.get(mbart_lang, tokenizer.lang_code_to_id.get('en_XX'))
+            generate_kwargs = {
+                "max_length": max_length,
+                "min_length": min_length,
+                "num_beams": 4,
+                "early_stopping": True,
+            }
 
-            summary_ids = model.generate(
-                input_ids,
-                max_length=max_length,
-                min_length=min_length,
-                num_beams=4,
-                early_stopping=True,
-                forced_bos_token_id=forced_bos_token_id
-            )
+            # mBART requires special language token handling
+            if model_key == 'bart' and hasattr(tokenizer, 'lang_code_to_id'):
+                mbart_lang = self._get_mbart_lang_code(language)
+                tokenizer.src_lang = mbart_lang
+                # Re-tokenize with correct source language
+                inputs = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
+                input_ids = inputs.input_ids.to(self.device)
+                generate_kwargs["forced_bos_token_id"] = tokenizer.lang_code_to_id.get(
+                    mbart_lang, tokenizer.lang_code_to_id.get('en_XX')
+                )
 
+            summary_ids = model.generate(input_ids, **generate_kwargs)
             summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
             return summary
         except Exception as e:
