@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import streamlit as st
 import pdfplumber
 import torch
+import requests
 from utils.export_utils import create_docx, create_pdf
 from main import run_summarization_pipeline
 
@@ -369,6 +370,38 @@ with st.sidebar:
         """)
 
     st.markdown("---")
+
+    # Backend Selection
+    with st.expander("🖥️ Backend", expanded=True):
+        backend_mode = st.radio(
+            "Run models on:",
+            ["💻 Local Machine", "☁️ Google Colab (Remote)"],
+            index=0,
+            help="Choose where to run the AI models. Use Colab for faster GPU inference."
+        )
+        use_remote = backend_mode.startswith("☁️")
+
+        colab_url = ""
+        if use_remote:
+            colab_url = st.text_input(
+                "Colab API URL:",
+                placeholder="https://xxxx.ngrok-free.app",
+                help="Paste the ngrok URL from your Colab notebook here."
+            )
+            if colab_url:
+                # Quick health check
+                try:
+                    resp = requests.get(f"{colab_url.rstrip('/')}/health", timeout=5)
+                    if resp.status_code == 200:
+                        st.success("✅ Connected to Colab backend!")
+                    else:
+                        st.warning("⚠️ Server responded but may not be ready.")
+                except Exception:
+                    st.error("❌ Cannot reach Colab server. Check the URL and that the notebook is running.")
+            else:
+                st.info("📋 See `COLAB_SETUP.md` for setup instructions.")
+
+    st.markdown("---")
     st.markdown("### 📈 Supported Languages")
     st.markdown("- 🇬🇧 **English** - Full support")
     st.markdown("- 🇮🇳 **Gujarati** - Full support")
@@ -445,21 +478,50 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Define progress callback
+        # Define progress callback (local only)
         def update_progress(stage_name, percent):
             status_text.markdown(f"**{stage_name}**")
             progress_bar.progress(min(percent, 100))
 
         try:
-            # Call pipeline with progress callback
-            results = run_summarization_pipeline(
-                text=input_text,
-                top_n=top_n,
-                clusters=clusters,
-                max_length=max_len,
-                language=language_code,
-                progress_callback=update_progress
-            )
+            if use_remote and colab_url:
+                # ---- Remote Colab Backend ----
+                status_text.markdown("**☁️ Sending to Colab backend...**")
+                progress_bar.progress(30)
+
+                api_endpoint = f"{colab_url.rstrip('/')}/summarize"
+                payload = {
+                    "text": input_text,
+                    "top_n": top_n,
+                    "clusters": clusters,
+                    "max_length": max_len,
+                    "language": language_code
+                }
+
+                response = requests.post(api_endpoint, json=payload, timeout=300)
+
+                if response.status_code != 200:
+                    raise Exception(f"Colab API returned error {response.status_code}: {response.text}")
+
+                progress_bar.progress(90)
+                status_text.markdown("**☁️ Processing response...**")
+
+                results = response.json()
+                progress_bar.progress(100)
+
+            elif use_remote and not colab_url:
+                raise ValueError("Please enter the Colab API URL in the sidebar first.")
+
+            else:
+                # ---- Local Backend ----
+                results = run_summarization_pipeline(
+                    text=input_text,
+                    top_n=top_n,
+                    clusters=clusters,
+                    max_length=max_len,
+                    language=language_code,
+                    progress_callback=update_progress
+                )
 
             # Fallback: if all abstractive models produced empty output
             if not results.get('best_summary'):
