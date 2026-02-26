@@ -1,0 +1,17 @@
+transformers
+torch
+sentence-transformers
+scikit-learn
+nltk
+spacy
+rouge-score
+bert-score
+datasets
+numpy
+sentencepiece
+protobuf
+indic-nlp-library
+streamlit
+pdfplumber
+python-docx
+fpdf2
