@@ -185,6 +185,14 @@ st.markdown("""
         border: 1px solid #e0e7ff;
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.1);
         margin-bottom: 1rem;
+        color: #1f2937 !important;
+    }
+
+    .result-card p,
+    .result-card div,
+    .result-card span,
+    .result-card strong {
+        color: #1f2937 !important;
     }
 
     /* Metric cards */
