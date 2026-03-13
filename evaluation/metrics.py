@@ -50,9 +50,9 @@ class Evaluator:
         """
         scores = self.rouge_scorer.score(reference, candidate)
         return {
-            'rouge1': scores['rouge1'].fmeasure,
-            'rouge2': scores['rouge2'].fmeasure,
-            'rougeL': scores['rougeL'].fmeasure
+            'rouge1': float(scores['rouge1'].fmeasure),
+            'rouge2': float(scores['rouge2'].fmeasure),
+            'rougeL': float(scores['rougeL'].fmeasure)
         }
 
     def calculate_bertscore(self, reference, candidate, language='en'):
@@ -151,7 +151,7 @@ class Evaluator:
         if not similarities:
             return 0.0
             
-        return np.mean(similarities)
+        return float(np.mean(similarities))
 
     def evaluate(self, reference, candidate, language='en'):
         """
@@ -164,13 +164,13 @@ class Evaluator:
         length_adequacy = self.calculate_length_adequacy(reference, candidate)
         
         return {
-            'rouge1': rouge['rouge1'],
-            'rouge2': rouge['rouge2'],
-            'rougeL': rouge['rougeL'],
-            'bert_score': bert,
-            'semantic_coverage': semantic_coverage,
-            'coherence': coherence,
-            'length_adequacy': length_adequacy,
+            'rouge1': float(rouge['rouge1']),
+            'rouge2': float(rouge['rouge2']),
+            'rougeL': float(rouge['rougeL']),
+            'bert_score': float(bert),
+            'semantic_coverage': float(semantic_coverage),
+            'coherence': float(coherence),
+            'length_adequacy': float(length_adequacy),
         }
 
 

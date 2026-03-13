@@ -511,7 +511,11 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
                 response = requests.post(api_endpoint, json=payload, timeout=300)
 
                 if response.status_code != 200:
-                    raise Exception(f"Colab API returned error {response.status_code}: {response.text}")
+                    try:
+                        backend_error = response.json().get("detail", response.text)
+                    except Exception:
+                        backend_error = response.text
+                    raise Exception(f"Colab API returned error {response.status_code}: {backend_error}")
 
                 progress_bar.progress(90)
                 status_text.markdown("**☁️ Processing response...**")

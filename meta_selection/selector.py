@@ -57,7 +57,7 @@ class MetaSelector:
             
             all_scores[model_name] = {
                 'raw_metrics': metrics,
-                'final_score': final_score
+                'final_score': float(final_score)
             }
             
             if final_score > best_score:
