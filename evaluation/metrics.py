@@ -25,7 +25,7 @@ class Evaluator:
         requests can reuse it.
         """
         if self.bert_scorer is None:
-            self.bert_scorer = bert_score.BERTScorer(lang="en", verbose=False)
+            self.bert_scorer = bert_score.BERTScorer(lang="en")
         return self.bert_scorer
 
     def calculate_rouge(self, reference, candidate):
