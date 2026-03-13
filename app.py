@@ -588,14 +588,17 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
             if is_torch_oom_error(e):
                 st.error("💾 **Out of Memory:** Your GPU ran out of memory while processing the text.")
                 st.info("💡 **Suggestion:** Try shortening your input text, or reduce the **Abstractive Max Length** slider in the sidebar.")
+            elif "colab api returned error" in error_msg.lower():
+                st.error(f"☁️ **Remote Backend Error:** {error_msg}")
+                st.info("💡 **Suggestion:** Check the Colab notebook logs and confirm the runtime was restarted after pulling the latest code.")
             elif "device" in error_msg.lower() and "cuda" in error_msg.lower():
                 st.error("🖥️ **GPU/CPU Device Mismatch:** A model component is on the wrong device.")
                 st.info("💡 **Suggestion:** Restart the Streamlit server and try again.")
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
-                st.error("🌐 **Network Error:** Could not connect to HuggingFace to download a model.")
-                st.info("💡 **Suggestion:** Run `python download_models.py` once to pre-cache all models locally.")
+                st.error("🌐 **Network Error:** Could not reach the remote backend or download a required model.")
+                st.info("💡 **Suggestion:** Verify the Colab URL, then check whether the backend finished warmup successfully.")
             else:
-                st.error(f"❌ **Unexpected Error:** Something went wrong in the pipeline.")
+                st.error(f"❌ **Unexpected Error:** {error_msg}")
 
             with st.expander("🔍 Technical details — click to report this bug"):
                 st.exception(e)
