@@ -12,6 +12,11 @@ sentencepiece
 protobuf
 indic-nlp-library
 streamlit
+requests
+fastapi
+uvicorn
+pydantic
+tqdm
 pdfplumber
 python-docx
 fpdf2

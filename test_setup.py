@@ -9,8 +9,6 @@ try:
     print(f"PyTorch version: {torch.__version__}")
     import sentence_transformers
     print(f"Sentence-Transformers version: {sentence_transformers.__version__}")
-    import gensim
-    print(f"Gensim version: {gensim.__version__}")
     import sklearn
     print(f"Scikit-learn version: {sklearn.__version__}")
     import nltk
@@ -24,6 +22,14 @@ try:
     print(f"BERTScore version: {bert_score.__version__}")
     import datasets
     print(f"Datasets version: {datasets.__version__}")
+    import requests
+    print(f"Requests version: {requests.__version__}")
+    import fastapi
+    print(f"FastAPI version: {fastapi.__version__}")
+    import uvicorn
+    print(f"Uvicorn version: {uvicorn.__version__}")
+    import pydantic
+    print(f"Pydantic version: {pydantic.__version__}")
 
     print("\nAll imports successful!")
 

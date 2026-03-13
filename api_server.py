@@ -12,6 +12,7 @@ Usage (Local):
 
 import sys
 import os
+import threading
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, HTTPException
@@ -19,9 +20,10 @@ from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 
-from main import run_summarization_pipeline
+from main import run_summarization_pipeline, warm_runtime
 
 app = FastAPI(title="Hybrid Summarizer API", version="1.0")
+warmup_state = {"status": "idle", "detail": "Warmup has not started yet."}
 
 
 class SummarizeRequest(BaseModel):
@@ -43,9 +45,37 @@ class SummarizeResponse(BaseModel):
     scores: dict
 
 
+def start_warmup(load_models=False):
+    if warmup_state["status"] == "warming":
+        return
+
+    def _runner():
+        warmup_state["status"] = "warming"
+        warmup_state["detail"] = "Loading cached runtime components."
+        try:
+            warm_runtime(load_models=load_models)
+            warmup_state["status"] = "ready"
+            warmup_state["detail"] = "Runtime cache is ready."
+        except Exception as exc:
+            warmup_state["status"] = "error"
+            warmup_state["detail"] = str(exc)
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "message": "Hybrid Summarizer API is running"}
+    return {
+        "status": "ok",
+        "message": "Hybrid Summarizer API is running",
+        "warmup": warmup_state,
+    }
+
+
+@app.post("/warmup")
+def warmup(load_models: bool = True):
+    start_warmup(load_models=load_models)
+    return {"status": "accepted", "warmup": warmup_state, "load_models": load_models}
 
 
 @app.post("/summarize", response_model=SummarizeResponse)

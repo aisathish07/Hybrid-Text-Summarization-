@@ -6,10 +6,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
 import pdfplumber
-import torch
 import requests
 from utils.export_utils import create_docx, create_pdf
-from main import run_summarization_pipeline
 
 # Page Config
 st.set_page_config(
@@ -17,6 +15,18 @@ st.set_page_config(
     page_icon="🤖",
     layout="wide"
 )
+
+
+@st.cache_resource(show_spinner=False)
+def get_local_pipeline_runner():
+    from main import run_summarization_pipeline
+
+    return run_summarization_pipeline
+
+
+def is_torch_oom_error(exc):
+    exc_type = type(exc)
+    return exc_type.__name__ == "OutOfMemoryError" and exc_type.__module__.startswith("torch")
 
 # ---- Custom CSS Styling ----
 st.markdown("""
@@ -514,6 +524,9 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
 
             else:
                 # ---- Local Backend ----
+                status_text.markdown("**Preparing local pipeline...**")
+                progress_bar.progress(5)
+                run_summarization_pipeline = get_local_pipeline_runner()
                 results = run_summarization_pipeline(
                     text=input_text,
                     top_n=top_n,
@@ -544,12 +557,6 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
             with st.expander("🔍 Technical details"):
                 st.exception(e)
 
-        except torch.cuda.OutOfMemoryError:
-            progress_bar.empty()
-            status_text.empty()
-            st.error("💾 **Out of Memory:** Your GPU ran out of memory while processing the text.")
-            st.info("💡 **Suggestion:** Try shortening your input text, or reduce the **Abstractive Max Length** slider in the sidebar.")
-
         except OSError as e:
             progress_bar.empty()
             status_text.empty()
@@ -574,7 +581,10 @@ if st.button("🚀 Generate Summary", type="primary", use_container_width=True):
             status_text.empty()
             error_msg = str(e)
 
-            if "device" in error_msg.lower() and "cuda" in error_msg.lower():
+            if is_torch_oom_error(e):
+                st.error("💾 **Out of Memory:** Your GPU ran out of memory while processing the text.")
+                st.info("💡 **Suggestion:** Try shortening your input text, or reduce the **Abstractive Max Length** slider in the sidebar.")
+            elif "device" in error_msg.lower() and "cuda" in error_msg.lower():
                 st.error("🖥️ **GPU/CPU Device Mismatch:** A model component is on the wrong device.")
                 st.info("💡 **Suggestion:** Restart the Streamlit server and try again.")
             elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():

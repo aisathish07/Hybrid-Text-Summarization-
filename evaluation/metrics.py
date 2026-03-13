@@ -12,11 +12,21 @@ warnings.filterwarnings("ignore")
 class Evaluator:
     def __init__(self, coherence_model_name='all-MiniLM-L6-v2'):
         self.rouge_scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+        self.bert_scorer = None
         try:
             self.coherence_model = SentenceTransformer(coherence_model_name)
         except Exception as e:
             print(f"Error loading coherence model: {e}")
             self.coherence_model = None
+
+    def preload_bertscore(self):
+        """
+        Lazily initialize the heavyweight BERTScore model once so repeated
+        requests can reuse it.
+        """
+        if self.bert_scorer is None:
+            self.bert_scorer = bert_score.BERTScorer(lang="en", verbose=False)
+        return self.bert_scorer
 
     def calculate_rouge(self, reference, candidate):
         """
@@ -38,9 +48,8 @@ class Evaluator:
         # We assume single string input for reference and candidate.
         # bert_score.score expects list of candidates and list of references.
         try:
-            # Using default RoBERTa-Large model (lang="en")
-            # This provides the best accuracy for English text
-            P, R, F1 = bert_score.score([candidate], [reference], lang="en", verbose=False)
+            scorer = self.preload_bertscore()
+            P, R, F1 = scorer.score([candidate], [reference])
             return F1.mean().item()
         except Exception as e:
             print(f"Error in BERTScore (likely download timeout): {e}")
@@ -122,6 +131,25 @@ class Evaluator:
             'bert_score': bert,
             'coherence': coherence
         }
+
+
+def evaluate_summary(summary, reference, evaluator=None):
+    """
+    Backward-compatible helper used by benchmark scripts.
+
+    Args:
+        summary: Generated summary text.
+        reference: Reference summary text.
+        evaluator: Optional Evaluator instance to reuse.
+
+    Returns:
+        dict: Evaluation metrics with both `bert_score` and legacy
+        `bertscore` keys for older scripts.
+    """
+    evaluator = evaluator or Evaluator()
+    metrics = evaluator.evaluate(reference, summary)
+    metrics['bertscore'] = metrics['bert_score']
+    return metrics
 
 if __name__ == "__main__":
     # Test block
