@@ -37,6 +37,7 @@ class SummarizeRequest(BaseModel):
 class SummarizeResponse(BaseModel):
     best_model: Optional[str]
     best_summary: Optional[str]
+    english_translation: Optional[str] = None
     extractive_list: list
     extractive_text: str
     clustered_list: list

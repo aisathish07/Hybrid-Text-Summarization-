@@ -308,24 +308,24 @@ def extract_text_from_pdf(uploaded_file):
                 text += extracted + "\n"
     return text
 
-def create_download_buttons(summary_text, language):
+def create_download_buttons(summary_text, language, title="Generated Summary", file_prefix="summary"):
     col1, col2 = st.columns(2)
     with col1:
-        docx_bytes = create_docx(summary_text, title="Generated Summary")
+        docx_bytes = create_docx(summary_text, title=title)
         st.download_button(
             label="📄 Download as Word (.docx)",
             data=docx_bytes,
-            file_name="summary.docx",
+            file_name=f"{file_prefix}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             use_container_width=True
         )
     with col2:
         try:
-            pdf_bytes = create_pdf(summary_text, title="Generated Summary", language=language)
+            pdf_bytes = create_pdf(summary_text, title=title, language=language)
             st.download_button(
                 label="📕 Download as PDF (.pdf)",
                 data=pdf_bytes,
-                file_name="summary.pdf",
+                file_name=f"{file_prefix}.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
@@ -610,13 +610,39 @@ if 'results' in st.session_state:
         <div class="result-card">
             <p style="margin-bottom: 0.5rem; color: #6c757d;">Selected Model Phase</p>
             <span class="model-badge">{results['best_model']}</span>
-            <hr style="margin: 1rem 0;">
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("#### Original Summary")
+        st.markdown(f"""
+        <div class="result-card">
             <p style="font-size: 1.1rem; line-height: 1.8;">{results['best_summary']}</p>
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("### 📥 Export")
-        create_download_buttons(results['best_summary'], language=result_language)
+        st.markdown("### 📥 Export Original")
+        create_download_buttons(
+            results['best_summary'],
+            language=result_language,
+            title="Generated Summary",
+            file_prefix="summary_original"
+        )
+
+        if results.get('english_translation'):
+            st.markdown("#### English Translation")
+            st.markdown(f"""
+            <div class="result-card">
+                <p style="font-size: 1.1rem; line-height: 1.8;">{results['english_translation']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("### 📥 Export English Translation")
+            create_download_buttons(
+                results['english_translation'],
+                language='en',
+                title="English Translation",
+                file_prefix="summary_english"
+            )
 
     with res_tab_stages:
         # Stage 1
@@ -657,7 +683,7 @@ if 'results' in st.session_state:
         st.markdown("""
         <div class="info-box">
             <strong>Why was this summary chosen?</strong><br>
-            The system automatically scored all candidates against the Semantic Clustering reference using multiple quality metrics.
+            The system automatically scored all candidates against the Semantic Clustering reference using coverage, length adequacy, coherence, and overlap metrics.
         </div>
         """, unsafe_allow_html=True)
 
@@ -666,15 +692,21 @@ if 'results' in st.session_state:
                 st.markdown(f"**Model:** `{model}`")
 
                 # Score breakdown
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
                     st.metric("Final Score", f"{scores['final_score']:.4f}")
                 with col2:
-                    st.metric("ROUGE", f"{scores['raw_metrics'].get('rouge', scores['raw_metrics'].get('rougeL', 0)):.4f}")
+                    st.metric("ROUGE-L", f"{scores['raw_metrics'].get('rougeL', 0):.4f}")
                 with col3:
-                    st.metric("BERTScore", f"{scores['raw_metrics'].get('bertscore', scores['raw_metrics'].get('bert_score', 0)):.4f}")
+                    st.metric("Semantic", f"{scores['raw_metrics'].get('semantic_coverage', 0):.4f}")
                 with col4:
+                    st.metric("Length", f"{scores['raw_metrics'].get('length_adequacy', 0):.4f}")
+                with col5:
                     st.metric("Coherence", f"{scores['raw_metrics'].get('coherence', 0):.4f}")
+
+                bert_score_value = scores['raw_metrics'].get('bert_score', 0)
+                if bert_score_value:
+                    st.caption(f"BERTScore: {bert_score_value:.4f}")
 
                 st.divider()
         else:

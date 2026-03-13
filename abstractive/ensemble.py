@@ -1,6 +1,6 @@
 
 import torch
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 class AbstractiveEnsemble:
     # mBART-50 language code mapping
@@ -69,6 +69,9 @@ class AbstractiveEnsemble:
         """Returns list of available model keys."""
         return list(self.model_names.keys())
 
+    def _get_mbart_lang_code(self, language):
+        return self.MBART_LANG_MAP.get(language, 'en_XX')
+
     def generate_single_candidate(self, text, model_key, max_length=150, min_length=30, language='en'):
         """
         Generates a summary from a specific model.
@@ -106,6 +109,42 @@ class AbstractiveEnsemble:
             return summary
         except Exception as e:
             print(f"Error generating summary with {model_key}: {e}")
+            import traceback
+            traceback.print_exc()
+            return ""
+
+    def translate_to_english(self, text, source_language='en', max_length=220):
+        """
+        Translate a generated summary to English while preserving the original.
+        Uses the already-loaded mBART model for multilingual translation.
+        """
+        if not text:
+            return ""
+
+        if source_language == 'en':
+            return text
+
+        loaded = self.load_model('bart')
+        if not loaded:
+            return ""
+
+        tokenizer, model = loaded
+        try:
+            src_lang = self._get_mbart_lang_code(source_language)
+            tokenizer.src_lang = src_lang
+            inputs = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
+            input_ids = inputs.input_ids.to(self.device)
+
+            translated_ids = model.generate(
+                input_ids,
+                max_length=max_length,
+                num_beams=4,
+                early_stopping=True,
+                forced_bos_token_id=tokenizer.lang_code_to_id['en_XX'],
+            )
+            return tokenizer.decode(translated_ids[0], skip_special_tokens=True)
+        except Exception as e:
+            print(f"Error translating summary to English: {e}")
             import traceback
             traceback.print_exc()
             return ""

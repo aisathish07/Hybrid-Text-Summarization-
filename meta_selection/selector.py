@@ -8,7 +8,7 @@ class MetaSelector:
         else:
             self.evaluator = Evaluator()
 
-    def select_best_summary(self, candidates, reference_summary):
+    def select_best_summary(self, candidates, reference_summary, language='en'):
         """
         Selects the best summary from candidates based on weighted scores against reference_summary.
         
@@ -28,21 +28,32 @@ class MetaSelector:
             if not candidate_text:
                 continue
                 
-            metrics = self.evaluator.evaluate(reference_summary, candidate_text)
-            
-            # Weighted Score calculation
-            # Weights: 0.4 ROUGE-L + 0.3 BERTScore + 0.3 Coherence
-            # Note: BERTScore returns F1 which is 0-1. ROUGE-L is 0-1. Coherence is -1 to 1 (cosine sim) but usually 0-1 for text
-            
+            metrics = self.evaluator.evaluate(reference_summary, candidate_text, language=language)
+
+            rouge1 = metrics['rouge1']
             rouge_l = metrics['rougeL']
             bert_s = metrics['bert_score']
+            semantic_coverage = metrics['semantic_coverage']
             coherence = metrics['coherence']
-            
-            # Normalize coherence if needed? Cosine similarity is [-1, 1].
-            # For text, usually [0, 1].
-            # We'll use it as is.
-            
-            final_score = (0.4 * rouge_l) + (0.3 * bert_s) + (0.3 * coherence)
+            length_adequacy = metrics['length_adequacy']
+
+            if language == 'en':
+                final_score = (
+                    (0.15 * rouge1) +
+                    (0.20 * rouge_l) +
+                    (0.25 * semantic_coverage) +
+                    (0.20 * bert_s) +
+                    (0.10 * coherence) +
+                    (0.10 * length_adequacy)
+                )
+            else:
+                final_score = (
+                    (0.20 * rouge1) +
+                    (0.20 * rouge_l) +
+                    (0.35 * semantic_coverage) +
+                    (0.15 * coherence) +
+                    (0.10 * length_adequacy)
+                )
             
             all_scores[model_name] = {
                 'raw_metrics': metrics,
@@ -57,7 +68,7 @@ class MetaSelector:
         return best_model, best_summary, all_scores
 
 # Module-level convenience function
-def select_best_summary(candidates, reference_summary):
+def select_best_summary(candidates, reference_summary, language='en'):
     """
     Convenience function to select best summary without instantiating MetaSelector.
     
@@ -69,7 +80,7 @@ def select_best_summary(candidates, reference_summary):
         tuple: (best_model_name, best_summary_text, scores_dict)
     """
     selector = MetaSelector()
-    return selector.select_best_summary(candidates, reference_summary)
+    return selector.select_best_summary(candidates, reference_summary, language=language)
 
 if __name__ == "__main__":
     # Test block

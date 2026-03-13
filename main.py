@@ -42,7 +42,7 @@ def get_ensemble():
 @lru_cache(maxsize=1)
 def get_evaluator():
     _, _, _, Evaluator, _ = _load_pipeline_components()
-    return Evaluator()
+    return Evaluator(coverage_model=get_clusterer().model)
 
 
 def warm_runtime(load_models=False):
@@ -134,7 +134,20 @@ def run_summarization_pipeline(text, top_n=5, clusters=3, max_length=150, langua
     selector = MetaSelector(evaluator)
 
     # Evaluate candidates against the clustered (optimized extractive) summary
-    best_model, best_summary, scores = selector.select_best_summary(candidates, clustered_summary_text)
+    best_model, best_summary, scores = selector.select_best_summary(
+        candidates,
+        clustered_summary_text,
+        language=language,
+    )
+
+    english_translation = None
+    if best_summary and language != 'en':
+        report_progress("Translating summary to English", 96)
+        try:
+            english_translation = ensemble.translate_to_english(best_summary, source_language=language)
+        except Exception as e:
+            print(f"Warning: translation failed: {e}")
+            english_translation = None
 
     report_progress("Summary selection complete", 100)
 
@@ -146,7 +159,8 @@ def run_summarization_pipeline(text, top_n=5, clusters=3, max_length=150, langua
         "candidates": candidates,
         "best_model": best_model,
         "best_summary": best_summary,
-        "scores": scores
+        "scores": scores,
+        "english_translation": english_translation,
     }
 
 
@@ -179,12 +193,16 @@ def step3_abstractive(clustered_text, max_length=150):
     return {"candidates": candidates}
 
 
-def step4_selection(clustered_text, candidates):
+def step4_selection(clustered_text, candidates, language='en'):
     """Stage 4: Meta-selection of best summary"""
     _, _, _, _, MetaSelector = _load_pipeline_components()
     evaluator = get_evaluator()
     selector = MetaSelector(evaluator)
-    best_model, best_summary, scores = selector.select_best_summary(candidates, clustered_text)
+    best_model, best_summary, scores = selector.select_best_summary(
+        candidates,
+        clustered_text,
+        language=language,
+    )
     return {
         "best_model": best_model,
         "best_summary": best_summary,
@@ -242,6 +260,8 @@ def main():
     print("\n=== FINAL RESULTS ===")
     print(f"Best Model: {results['best_model']}")
     print(f"Selected Summary:\n{results['best_summary']}")
+    if results.get('english_translation'):
+        print(f"\nEnglish Translation:\n{results['english_translation']}")
     
     print("\nScores:")
     for m, s in results['scores'].items():

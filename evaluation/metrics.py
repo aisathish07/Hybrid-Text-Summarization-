@@ -1,18 +1,34 @@
 
-from rouge_score import rouge_scorer
+import re
+import warnings
+
 import bert_score
+import numpy as np
+from rouge_score import rouge_scorer
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-import warnings
 
 # Suppress some warnings from bert_score
 warnings.filterwarnings("ignore")
 
 class Evaluator:
-    def __init__(self, coherence_model_name='all-MiniLM-L6-v2'):
+    def __init__(
+        self,
+        coherence_model_name='all-MiniLM-L6-v2',
+        coverage_model_name='paraphrase-multilingual-MiniLM-L12-v2',
+        coverage_model=None,
+    ):
         self.rouge_scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
         self.bert_scorer = None
+        self.coverage_model = coverage_model
+
+        if self.coverage_model is None:
+            try:
+                self.coverage_model = SentenceTransformer(coverage_model_name)
+            except Exception as e:
+                print(f"Error loading coverage model: {e}")
+                self.coverage_model = None
+
         try:
             self.coherence_model = SentenceTransformer(coherence_model_name)
         except Exception as e:
@@ -39,14 +55,14 @@ class Evaluator:
             'rougeL': scores['rougeL'].fmeasure
         }
 
-    def calculate_bertscore(self, reference, candidate):
+    def calculate_bertscore(self, reference, candidate, language='en'):
         """
         Calculates BERTScore using RoBERTa-Large for high accuracy.
         Downloads ~1.4GB model on first run, then cached permanently.
         """
-        # BERTScore calculates P, R, F1 for each pair.
-        # We assume single string input for reference and candidate.
-        # bert_score.score expects list of candidates and list of references.
+        if language != 'en':
+            return 0.0
+
         try:
             scorer = self.preload_bertscore()
             P, R, F1 = scorer.score([candidate], [reference])
@@ -55,30 +71,77 @@ class Evaluator:
             print(f"Error in BERTScore (likely download timeout): {e}")
             return 0.0
 
-    def calculate_coherence(self, summary_text):
+    def _select_sentence_encoder(self, language='en'):
+        if language == 'en' and self.coherence_model:
+            return self.coherence_model
+        return self.coverage_model or self.coherence_model
+
+    def _split_sentences(self, text, language='en'):
+        if not text:
+            return []
+
+        if language == 'en':
+            try:
+                from nltk.tokenize import sent_tokenize
+                return [sentence.strip() for sentence in sent_tokenize(text) if sentence.strip()]
+            except Exception:
+                pass
+
+        return [part.strip() for part in re.split(r'[.!?।]+', text) if part.strip()]
+
+    def calculate_semantic_coverage(self, reference, candidate):
+        """
+        Measures how well the candidate semantically matches the reference.
+        """
+        if not self.coverage_model or not reference or not candidate:
+            return 0.0
+
+        try:
+            embeddings = self.coverage_model.encode([reference, candidate])
+            similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+            return max(0.0, min(1.0, float((similarity + 1.0) / 2.0)))
+        except Exception as e:
+            print(f"Error in semantic coverage: {e}")
+            return 0.0
+
+    def calculate_length_adequacy(self, reference, candidate):
+        """
+        Penalizes summaries that are far shorter than the clustered reference.
+        """
+        reference_tokens = len(reference.split())
+        candidate_tokens = len(candidate.split())
+
+        if reference_tokens == 0 or candidate_tokens == 0:
+            return 0.0
+
+        target_min = max(8, int(reference_tokens * 0.45))
+        target_max = max(target_min + 1, int(reference_tokens * 1.15))
+
+        if candidate_tokens < target_min:
+            return max(0.0, min(1.0, candidate_tokens / target_min))
+
+        if candidate_tokens > target_max:
+            return max(0.0, min(1.0, target_max / candidate_tokens))
+
+        return 1.0
+
+    def calculate_coherence(self, summary_text, language='en'):
         """
         Calculates coherence score based on cosine similarity of adjacent sentences.
         """
-        if not self.coherence_model:
+        encoder = self._select_sentence_encoder(language)
+        if not encoder:
             return 0.0
 
         if not summary_text:
             return 0.0
 
-        # Split into sentences (simple split or use nltk)
-        # We can use nltk sent_tokenize if available, else simple split
-        try:
-            from nltk.tokenize import sent_tokenize
-            sentences = sent_tokenize(summary_text)
-        except:
-            sentences = summary_text.split('. ')
+        sentences = self._split_sentences(summary_text, language=language)
             
         if len(sentences) < 2:
-            return 1.0 # Single sentence is coherent with itself? Or 0? 
-                       # Usually if it's too short, coherence is hard to judge.
-                       # Let's return 1.0 or heuristic.
+            return 1.0
         
-        embeddings = self.coherence_model.encode(sentences)
+        embeddings = encoder.encode(sentences)
         
         similarities = []
         for i in range(len(embeddings) - 1):
@@ -90,50 +153,28 @@ class Evaluator:
             
         return np.mean(similarities)
 
-    def evaluate(self, reference, candidate):
+    def evaluate(self, reference, candidate, language='en'):
         """
         Runs all metrics.
-        Args:
-            reference (str): Reference summary (gold standard). 
-                             Note: In unsupervised setting without reference, we can't use ROUGE/BERTScore against reference.
-                             But this function assumes we have one (e.g. for validation).
-                             If we are doing Meta-Selection during inference WITHOUT reference, we can only use Coherence 
-                             and maybe similarity to source text (Coverage).
-                             
-                             WAIT: The plan says "Meta-Selection mechanism for optimal summary generation".
-                             If this is for inference on new text, we DON'T have a reference.
-                             So strictly speaking, Meta-Selection must rely on:
-                             1. Coherence
-                             2. Coverage (Similarity to Source Document)
-                             3. Length penalty/reward?
-                             
-                             The implementation plan said:
-                             "Final Score = 0.4 * ROUGE + 0.3 * BERTScore + 0.3 * Coherence"
-                             This implies we HAVE a reference. This suggests the user wants to pick the best model 
-                             DURING DEVELOPMENT or if they have references.
-                             
-                             But for "Hybrid Text Summarization System" that generates summaries for new text, 
-                             references are unknown.
-                             
-                             However, maybe the "Meta-Selection" is against the *Input Text* or the *Extractive Summary* as a pseudo-reference?
-                             Common technique: Use Extractive Summary as a pseudo-reference for Abstractive candidates.
-                             
-                             Let's support passing "source text" or "extractive summary" as 'reference' for that purpose.
         """
         rouge = self.calculate_rouge(reference, candidate)
-        bert = self.calculate_bertscore(reference, candidate)
-        coherence = self.calculate_coherence(candidate)
+        bert = self.calculate_bertscore(reference, candidate, language=language)
+        semantic_coverage = self.calculate_semantic_coverage(reference, candidate)
+        coherence = self.calculate_coherence(candidate, language=language)
+        length_adequacy = self.calculate_length_adequacy(reference, candidate)
         
         return {
             'rouge1': rouge['rouge1'],
             'rouge2': rouge['rouge2'],
             'rougeL': rouge['rougeL'],
             'bert_score': bert,
-            'coherence': coherence
+            'semantic_coverage': semantic_coverage,
+            'coherence': coherence,
+            'length_adequacy': length_adequacy,
         }
 
 
-def evaluate_summary(summary, reference, evaluator=None):
+def evaluate_summary(summary, reference, evaluator=None, language='en'):
     """
     Backward-compatible helper used by benchmark scripts.
 
@@ -147,7 +188,7 @@ def evaluate_summary(summary, reference, evaluator=None):
         `bertscore` keys for older scripts.
     """
     evaluator = evaluator or Evaluator()
-    metrics = evaluator.evaluate(reference, summary)
+    metrics = evaluator.evaluate(reference, summary, language=language)
     metrics['bertscore'] = metrics['bert_score']
     return metrics
 
